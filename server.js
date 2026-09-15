@@ -7,19 +7,17 @@ const fs = require('fs');
 const app = express();
 app.use(express.json());
 
-// Gestione persistente API Keys
 const KEYS_FILE = path.join(__dirname, 'data', 'apikeys.json');
 let apiKeys = {};
 if (fs.existsSync(KEYS_FILE)) {
     apiKeys = JSON.parse(fs.readFileSync(KEYS_FILE, 'utf8'));
 } else {
-    // Chiave di default iniziale
     apiKeys['sk-my-super-secret-key'] = { name: 'Admin Default', calls: 0, tokens: 0, created: new Date().toISOString() };
+    if (!fs.existsSync(path.join(__dirname, 'data'))) fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
     fs.writeFileSync(KEYS_FILE, JSON.stringify(apiKeys, null, 2));
 }
 const saveKeys = () => fs.writeFileSync(KEYS_FILE, JSON.stringify(apiKeys, null, 2));
 
-let llamaProcess = null;
 let serverLogs = [];
 const MAX_LOGS = 200;
 
@@ -34,6 +32,15 @@ const uiAuth = basicAuth({
     challenge: true
 });
 
+let modelsDir = path.join(__dirname, 'models');
+
+// Funzione di utilità per controllare se llama-server è attivo sul sistema
+const isServerRunning = (callback) => {
+    exec("pgrep -f llama-server", (err, stdout) => {
+        callback(!err && stdout.trim().length > 0);
+    });
+};
+
 // Endpoint Pubblico - Proxy per chiamate esterne
 app.post('/v1/chat/completions', async (req, res) => {
     const authHeader = req.headers['authorization'];
@@ -42,7 +49,6 @@ app.post('/v1/chat/completions', async (req, res) => {
     const key = authHeader.split(' ')[1];
     if (!apiKeys[key]) return res.status(401).json({ error: "API Key non autorizzata" });
 
-    // Aggiornamento Statistiche (stima token basata sui byte del payload)
     apiKeys[key].calls = (apiKeys[key].calls || 0) + 1;
     apiKeys[key].tokens = (apiKeys[key].tokens || 0) + Math.ceil(JSON.stringify(req.body).length / 4);
     saveKeys();
@@ -70,33 +76,41 @@ app.post('/v1/chat/completions', async (req, res) => {
 
 app.use('/', uiAuth, express.static(path.join(__dirname, 'public')));
 
-// Rotte API Keys per la UI
+// Rotte API Keys
 app.get('/api/keys', uiAuth, (req, res) => res.json(apiKeys));
-
 app.post('/api/keys', uiAuth, (req, res) => {
     const name = req.body.name || 'Nuova Chiave';
-    // Genera una chiave stile OpenAI
     const newKey = 'sk-' + Math.random().toString(36).substr(2, 10) + Math.random().toString(36).substr(2, 10);
     apiKeys[newKey] = { name, calls: 0, tokens: 0, created: new Date().toISOString() };
     saveKeys();
     res.json(apiKeys);
 });
-
 app.delete('/api/keys/:key', uiAuth, (req, res) => {
-    if (apiKeys[req.params.key]) {
-        delete apiKeys[req.params.key];
-        saveKeys();
-    }
+    if (apiKeys[req.params.key]) { delete apiKeys[req.params.key]; saveKeys(); }
     res.json(apiKeys);
 });
 
-// Rotte Modelli e Sistema
+// Gestione Modelli e Cartella
+app.get('/api/models/path', uiAuth, (req, res) => res.json({ path: modelsDir }));
+app.post('/api/models/path', uiAuth, (req, res) => {
+    if (req.body.path && fs.existsSync(req.body.path)) {
+        modelsDir = path.resolve(req.body.path);
+        res.json({ success: true, path: modelsDir });
+    } else {
+        res.status(400).json({ success: false, error: "Cartella non esistente" });
+    }
+});
+
 app.get('/api/models', uiAuth, (req, res) => {
-    exec('ls -1 ./models/*.gguf', (err, stdout) => res.json(stdout ? stdout.split('\n').filter(Boolean).map(p => path.basename(p)) : []));
+    fs.readdir(modelsDir, (err, files) => {
+        if (err) return res.json([]);
+        res.json(files.filter(f => f.endsWith('.gguf')));
+    });
 });
 
 app.delete('/api/models/:name', uiAuth, (req, res) => {
-    exec(`rm -f ./models/${req.params.name}`, (err) => res.json({ success: !err }));
+    const filePath = path.join(modelsDir, req.params.name);
+    fs.unlink(filePath, (err) => res.json({ success: !err }));
 });
 
 app.post('/api/models/download', uiAuth, (req, res) => {
@@ -104,40 +118,61 @@ app.post('/api/models/download', uiAuth, (req, res) => {
     if (!url || !url.startsWith('http')) return res.end("URL non valido.");
     let filename = url.split('/').pop().split('?')[0];
     if (!filename || !filename.endsWith('.gguf')) filename += '.gguf';
+    const dest = path.join(modelsDir, filename);
 
     res.setHeader('Content-Type', 'text/plain; charset=utf-8');
     res.setHeader('Transfer-Encoding', 'chunked');
     res.write(`Inizio download di ${filename}...\n`);
 
-    const dlProcess = spawn('curl', ['-L', '--progress-bar', url, '-o', `./models/${filename}`]);
+    const dlProcess = spawn('curl', ['-L', '--progress-bar', url, '-o', dest]);
     dlProcess.stderr.on('data', data => res.write(data));
     dlProcess.stdout.on('data', data => res.write(data));
     dlProcess.on('close', (code) => {
-        if(code === 0) res.write(`\n[OK] Download completato con successo!\n`);
-        else res.write(`\n[!] Errore durante il download (Codice ${code}).\n`);
+        if(code === 0) res.write(`\n[OK] Download completato!\n`);
+        else res.write(`\n[!] Errore download (Codice ${code}).\n`);
         res.end();
     });
 });
 
 app.get('/api/server/logs', uiAuth, (req, res) => res.json(serverLogs));
 
+// Endpoint per controllare lo stato reale del server (persistente al refresh)
+app.get('/api/server/status', uiAuth, (req, res) => {
+    isServerRunning((running) => {
+        res.json({ status: running ? 'started' : 'stopped' });
+    });
+});
+
 app.post('/api/server/toggle', uiAuth, (req, res) => {
-    if (llamaProcess) {
-        llamaProcess.kill();
-        llamaProcess = null;
-        addLog("[SISTEMA] Processo arrestato manualmente.");
-        res.json({ status: "stopped" });
-    } else {
-        serverLogs = [];
-        addLog(`[SISTEMA] Avvio server con modello: ${req.body.model}...`);
-        llamaProcess = spawn('llama-server', [
-            '-m', `./models/${req.body.model}`, '-c', '512', '-np', '1', '-t', '1', '--port', '8080', '--host', '127.0.0.1'
-        ]);
-        llamaProcess.stdout.on('data', addLog);
-        llamaProcess.stderr.on('data', addLog);
-        llamaProcess.on('close', (code) => { addLog(`[SISTEMA] llama-server terminato con codice: ${code}`); llamaProcess = null; });
-        res.json({ status: "started" });
-    }
+    isServerRunning((running) => {
+        if (running) {
+            // Se è attivo, lo killa forzatamente tramite pkill
+            exec("pkill -f llama-server", (err) => {
+                addLog("[SISTEMA] Processo arrestato.");
+                res.json({ status: "stopped" });
+            });
+        } else {
+            serverLogs = [];
+            const modelPath = path.join(modelsDir, req.body.model);
+            addLog(`[SISTEMA] Avvio server con modello: ${req.body.model}...`);
+            
+            const serverBin = fs.existsSync('./llama-server') ? './llama-server' : 'llama-server';
+            
+            // Avvio disaccoppiato in background (detached)
+            const llamaProcess = spawn(serverBin, [
+                '-m', modelPath, '-c', '2048', '-np', '1', '-t', '1', '--port', '8080', '--host', '127.0.0.1'
+            ], {
+                detached: true,
+                stdio: ['ignore', 'pipe', 'pipe']
+            });
+
+            llamaProcess.stdout.on('data', addLog);
+            llamaProcess.stderr.on('data', addLog);
+            llamaProcess.unref(); // Sgancia completamente il ciclo di vita dal processo Node
+
+            res.json({ status: "started" });
+        }
+    });
 });
 
 app.post('/api/chat', uiAuth, async (req, res) => {
@@ -166,7 +201,7 @@ app.post('/api/chat', uiAuth, async (req, res) => {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ messages: [{ role: "user", content: prompt }], stream: true })
                 });
-                if (!llamaRes.ok) return res.end("Errore dal server Llama");
+                if (!llamaRes.ok) return res.end("Errore server Llama");
                 let buffer = '';
                 for await (const chunk of llamaRes.body) {
                     buffer += Buffer.from(chunk).toString('utf-8');

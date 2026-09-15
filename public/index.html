@@ -19,8 +19,8 @@
         @media (min-width: 768px) { .grid { grid-template-columns: 380px 1fr; } }
         .panel { background: var(--panel-bg); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); margin-bottom: 1.5rem; }
         .panel h3 { margin-top: 0; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); font-size: 1.1rem; color: #cbd5e1; }
-        select, input[type="text"], input[type="url"] { width: 100%; box-sizing: border-box; padding: 0.75rem; margin-bottom: 1rem; background: var(--bg-dark); color: var(--text-main); border: 1px solid var(--border); border-radius: 8px; outline: none; }
-        select:focus, input[type="text"]:focus, input[type="url"]:focus { border-color: var(--accent); }
+        select, input[type="text"], input[type="url"], input[type="number"] { width: 100%; box-sizing: border-box; padding: 0.75rem; margin-bottom: 1rem; background: var(--bg-dark); color: var(--text-main); border: 1px solid var(--border); border-radius: 8px; outline: none; }
+        select:focus, input:focus { border-color: var(--accent); }
         button { background: var(--accent); color: white; border: none; padding: 0.75rem 1.2rem; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.2s; }
         button:hover { background: var(--accent-hover); }
         button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -48,7 +48,6 @@
         pre { background: #000; padding: 1rem; border-radius: 8px; overflow-x: auto; font-family: monospace; font-size: 0.85rem; color: #32cd32; border: 1px solid var(--border); margin: 0; white-space: pre; }
         .copy-btn { position: absolute; top: 10px; right: 10px; padding: 0.3rem 0.6rem; font-size: 0.8rem; background: var(--bg-dark); border: 1px solid var(--border); color: #fff; cursor: pointer; border-radius: 4px; }
         .copy-btn:hover { background: var(--border); }
-        
         .stat-box { display: flex; justify-content: space-between; background: var(--bg-dark); padding: 0.75rem; border-radius: 6px; margin-bottom: 0.5rem; border: 1px solid var(--border); }
     </style>
 </head>
@@ -107,14 +106,20 @@
                 </div>
 
                 <div class="panel">
-                    <h3>Modelli su Disco</h3>
+                    <h3>📁 Modelli su Disco</h3>
+                    <label style="font-size: 0.82rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Cartella modelli attiva:</label>
+                    <div class="input-group" style="margin-bottom: 1rem;">
+                        <input type="text" v-model="currentModelsPath" placeholder="./models">
+                        <button class="btn-secondary" @click="updateModelsPath">Imposta</button>
+                    </div>
+
                     <ul style="margin-bottom: 1rem;">
                         <li v-for="model in models" :key="model">
                             <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 10px;">{{ model }}</span>
                             <button class="btn-danger" title="Elimina" @click="deleteModel(model)">🗑️</button>
                         </li>
                     </ul>
-                    <p v-if="models.length === 0" style="font-size: 0.85rem; color: var(--text-muted); text-align: center;">Nessun modello trovato.</p>
+                    <p v-if="models.length === 0" style="font-size: 0.85rem; color: var(--text-muted); text-align: center;">Nessun modello trovato in questa cartella.</p>
                     
                     <hr style="border-color: var(--border); margin: 1rem 0;">
                     <h4 style="margin-top:0; font-size: 0.95rem; color: #cbd5e1;">⬇️ Scarica Nuovo Modello</h4>
@@ -165,21 +170,36 @@
                 </div>
 
                 <div class="panel">
-                    <h3>⚡ Generatore Chiamate API (Gateway Esterno)</h3>
+                    <h3>⚡ Generatore Chiamate API (Gateway Esterno - OpenAI Standard)</h3>
                     
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1rem;">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
                         <div>
-                            <label style="font-size: 0.85rem; color: var(--text-muted); display: block; margin-bottom: 0.5rem;">Temperatura: {{apiTemp}}</label>
-                            <input type="range" v-model="apiTemp" min="0" max="1" step="0.1" style="width: 100%; accent-color: var(--accent);">
+                            <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Temperatura: {{apiTemp}}</label>
+                            <input type="range" v-model="apiTemp" min="0" max="2" step="0.1" style="width: 100%; accent-color: var(--accent);">
                         </div>
-                        <div class="toggle-row" style="align-items: flex-end; padding-bottom: 0.5rem;">
+                        <div>
+                            <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Max Tokens (vuoto = illimitato)</label>
+                            <input type="number" v-model="apiMaxTokens" placeholder="es. 512" style="margin-bottom: 0;">
+                        </div>
+                    </div>
+
+                    <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; margin-bottom: 1rem;">
+                        <div>
+                            <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Top P: {{apiTopP}}</label>
+                            <input type="range" v-model="apiTopP" min="0" max="1" step="0.05" style="width: 100%; accent-color: var(--accent);">
+                        </div>
+                        <div>
+                            <label style="font-size: 0.8rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Presence Penalty</label>
+                            <input type="number" v-model="apiPresencePenalty" min="-2" max="2" step="0.1" placeholder="0" style="margin-bottom: 0;">
+                        </div>
+                        <div class="toggle-row" style="align-items: flex-end; padding-bottom: 0.3rem;">
                             <input type="checkbox" id="apiStream" v-model="apiStream">
-                            <label for="apiStream">Abilita Streaming Mode (SSE)</label>
+                            <label for="apiStream">Streaming (SSE)</label>
                         </div>
                     </div>
                     
-                    <input type="text" v-model="apiSystemPrompt" placeholder="System Prompt (opzionale, es. 'Sei un pirata...')">
-                    <input type="text" v-model="apiPrompt" placeholder="Scrivi qui il prompt per costruire la chiamata utente...">
+                    <input type="text" v-model="apiSystemPrompt" placeholder="System Prompt (opzionale, es. 'Sei un assistente utile...')">
+                    <input type="text" v-model="apiPrompt" placeholder="Prompt utente...">
                     
                     <div style="position: relative; margin-top: 0.5rem;">
                         <pre><code>{{ curlCommand }}</code></pre>
@@ -197,6 +217,7 @@
             setup() {
                 const models = ref([]);
                 const selectedModel = ref('');
+                const currentModelsPath = ref('./models');
                 const prompt = ref('');
                 const chatLog = ref([{role: 'Llama', text: 'Ciao! Il sistema è pronto.'}]);
                 const useMcp = ref(false);
@@ -217,12 +238,15 @@
                 const newKeyName = ref('');
                 const selectedApiKey = ref('');
 
+                // API BUILDER PARAMS (OpenAI Standard)
                 const apiSystemPrompt = ref('');
                 const apiPrompt = ref('Di cosa vogliamo parlare oggi?');
                 const apiTemp = ref(0.7);
+                const apiMaxTokens = ref('');
+                const apiTopP = ref(1.0);
+                const apiPresencePenalty = ref(0);
                 const apiStream = ref(false);
 
-                // Builder Computed property: Utilizza la chiave selezionata, altrimenti un placeholder
                 const curlCommand = computed(() => {
                     const host = window.location.hostname || '130.110.8.22';
                     const safePrompt = apiPrompt.value.replace(/"/g, '\\"');
@@ -235,15 +259,44 @@
                     }
                     messagesStr += `\n      {\n        "role": "user",\n        "content": "${safePrompt}"\n      }\n    `;
 
+                    let extraParams = `\n    "temperature": ${apiTemp.value},\n    "top_p": ${apiTopP.value},\n    "presence_penalty": ${apiPresencePenalty.value}`;
+                    if (apiMaxTokens.value) {
+                        extraParams += `,\n    "max_tokens": ${apiMaxTokens.value}`;
+                    }
+                    extraParams += `,\n    "stream": ${apiStream.value}`;
+
                     return `curl -X POST http://${host}:3000/v1/chat/completions \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer ${authKey}" \\
   -d '{
-    "messages": [${messagesStr}],
-    "temperature": ${apiTemp.value},
-    "stream": ${apiStream.value}
+    "messages": [${messagesStr}],${extraParams}
   }'`;
                 });
+
+                const fetchModelsPath = async () => {
+                    try {
+                        const res = await fetch('/api/models/path');
+                        const data = await res.json();
+                        currentModelsPath.value = data.path;
+                    } catch(e) {}
+                };
+
+                const updateModelsPath = async () => {
+                    try {
+                        const res = await fetch('/api/models/path', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ path: currentModelsPath.value })
+                        });
+                        const data = await res.json();
+                        if(data.success) {
+                            alert("Cartella modelli aggiornata con successo!");
+                            fetchModels();
+                        } else {
+                            alert("Errore: " + data.error);
+                        }
+                    } catch(e) { alert("Errore di rete"); }
+                };
 
                 const fetchApiKeys = async () => {
                     try {
@@ -266,7 +319,7 @@
                 };
 
                 const deleteApiKey = async (key) => {
-                    if(confirm("Eliminare questa API Key? Smetterà di funzionare immediatamente.")) {
+                    if(confirm("Eliminare questa API Key?")) {
                         const res = await fetch(`/api/keys/${key}`, { method: 'DELETE' });
                         apiKeys.value = await res.json();
                         selectedApiKey.value = Object.keys(apiKeys.value)[0] || '';
@@ -296,7 +349,7 @@
                 };
 
                 const deleteModel = async (name) => {
-                    if(confirm(`Sei sicuro di voler eliminare definitivamente ${name}?`)) {
+                    if(confirm(`Eliminare definitivamente ${name}?`)) {
                         await fetch(`/api/models/${name}`, { method: 'DELETE' });
                         if(selectedModel.value === name) selectedModel.value = '';
                         fetchModels();
@@ -369,7 +422,7 @@
                     container.scrollTop = container.scrollHeight;
                 };
 
-                const clearChat = () => { chatLog.value = [{role: 'Llama', text: 'Contesto svuotato. Sono pronto per una nuova conversazione!'}]; };
+                const clearChat = () => { chatLog.value = [{role: 'Llama', text: 'Contesto svuotato. Sono pronto!'}]; };
 
                 const sendChat = async () => {
                     if (!prompt.value.trim() || isLoading.value) return;
@@ -379,7 +432,7 @@
                     isLoading.value = true;
                     
                     const msgIndex = chatLog.value.length;
-                    chatLog.value.push({ role: 'Llama', text: useStream.value ? '' : 'Elaborazione in corso...' });
+                    chatLog.value.push({ role: 'Llama', text: useStream.value ? '' : 'Elaborazione...' });
                     scrollToBottom();
                     
                     try {
@@ -407,16 +460,16 @@
                 };
 
                 onMounted(() => {
+                    fetchModelsPath();
                     fetchModels();
                     fetchApiKeys();
                 });
 
                 return { 
-                    models, selectedModel, prompt, chatLog, useMcp, useStream,
-                    isRunning, isLoading, showLogs, serverLogs,
-                    dlUrl, dlLog, isDownloading, 
+                    models, selectedModel, currentModelsPath, updateModelsPath, prompt, chatLog, useMcp, useStream,
+                    isRunning, isLoading, showLogs, serverLogs, dlUrl, dlLog, isDownloading, 
                     apiKeys, newKeyName, selectedApiKey, createApiKey, deleteApiKey,
-                    apiSystemPrompt, apiPrompt, apiTemp, apiStream, curlCommand, copyCurl, downloadModel,
+                    apiSystemPrompt, apiPrompt, apiTemp, apiMaxTokens, apiTopP, apiPresencePenalty, apiStream, curlCommand, copyCurl, downloadModel,
                     deleteModel, toggleServer, toggleLogs, clearChat, sendChat 
                 };
             }
