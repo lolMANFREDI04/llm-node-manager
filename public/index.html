@@ -1,0 +1,426 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Manager</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        :root {
+            --bg-dark: #0f172a; --panel-bg: #1e293b; --border: #334155;
+            --text-main: #f8fafc; --text-muted: #94a3b8;
+            --accent: #3b82f6; --accent-hover: #2563eb;
+            --danger: #ef4444; --success: #10b981;
+            --log-bg: #000000; --log-text: #32cd32;
+        }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background-color: var(--bg-dark); color: var(--text-main); max-width: 1200px; margin: 0 auto; padding: 2rem 1rem; line-height: 1.5; }
+        h2 { text-align: center; margin-bottom: 2rem; color: #e2e8f0; font-weight: 600; }
+        .grid { display: grid; gap: 1.5rem; grid-template-columns: 1fr; }
+        @media (min-width: 768px) { .grid { grid-template-columns: 380px 1fr; } }
+        .panel { background: var(--panel-bg); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); margin-bottom: 1.5rem; }
+        .panel h3 { margin-top: 0; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border); font-size: 1.1rem; color: #cbd5e1; }
+        select, input[type="text"], input[type="url"] { width: 100%; box-sizing: border-box; padding: 0.75rem; margin-bottom: 1rem; background: var(--bg-dark); color: var(--text-main); border: 1px solid var(--border); border-radius: 8px; outline: none; }
+        select:focus, input[type="text"]:focus, input[type="url"]:focus { border-color: var(--accent); }
+        button { background: var(--accent); color: white; border: none; padding: 0.75rem 1.2rem; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.2s; }
+        button:hover { background: var(--accent-hover); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-full { width: 100%; margin-bottom: 1rem; display: flex; justify-content: center; align-items: center; gap: 0.5rem; }
+        .btn-secondary { background: var(--bg-dark); border: 1px solid var(--border); color: var(--text-main); }
+        .btn-secondary:hover { background: var(--border); }
+        .btn-danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); padding: 0.4rem 0.6rem; border-radius: 6px; }
+        .btn-danger:hover { background: var(--danger); color: white; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; background: var(--danger); }
+        .status-dot.active { background: var(--success); box-shadow: 0 0 8px var(--success); }
+        ul { list-style: none; padding: 0; margin: 0; }
+        li { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: var(--bg-dark); margin-bottom: 0.5rem; border-radius: 8px; border: 1px solid var(--border); font-size: 0.85rem; }
+        .chat-box { height: 450px; overflow-y: auto; background: var(--bg-dark); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; display: flex; flex-direction: column; gap: 1rem; scroll-behavior: smooth; }
+        .msg { max-width: 80%; padding: 0.75rem 1rem; border-radius: 12px; font-size: 0.95rem; white-space: pre-wrap; word-wrap: break-word; }
+        .msg.User { align-self: flex-end; background: var(--accent); color: white; border-bottom-right-radius: 2px; }
+        .msg.Llama { align-self: flex-start; background: var(--panel-bg); border: 1px solid var(--border); border-bottom-left-radius: 2px; color: #e2e8f0; }
+        .input-group { display: flex; gap: 0.5rem; }
+        .input-group input { margin-bottom: 0; }
+        .toggle-row { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; color: var(--text-muted); }
+        input[type="checkbox"] { width: 1.1rem; height: 1.1rem; accent-color: var(--accent); }
+        .log-box { background: var(--log-bg); color: var(--log-text); font-family: monospace; font-size: 0.8rem; height: 300px; overflow-y: auto; padding: 0.5rem; border-radius: 8px; border: 1px solid var(--border); white-space: pre-wrap; word-break: break-all; margin-top: 1rem; }
+        .cursor::after { content: '▋'; animation: blink 1s step-start infinite; }
+        @keyframes blink { 50% { opacity: 0; } }
+        
+        pre { background: #000; padding: 1rem; border-radius: 8px; overflow-x: auto; font-family: monospace; font-size: 0.85rem; color: #32cd32; border: 1px solid var(--border); margin: 0; white-space: pre; }
+        .copy-btn { position: absolute; top: 10px; right: 10px; padding: 0.3rem 0.6rem; font-size: 0.8rem; background: var(--bg-dark); border: 1px solid var(--border); color: #fff; cursor: pointer; border-radius: 4px; }
+        .copy-btn:hover { background: var(--border); }
+        
+        .stat-box { display: flex; justify-content: space-between; background: var(--bg-dark); padding: 0.75rem; border-radius: 6px; margin-bottom: 0.5rem; border: 1px solid var(--border); }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <h2>🛠️ Llama.cpp Node Manager</h2>
+        
+        <div class="grid">
+            <!-- COLONNA SINISTRA -->
+            <div>
+                <div class="panel">
+                    <h3>Controllo Server API</h3>
+                    <label style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.3rem; display: block;">Modello attivo:</label>
+                    <select v-model="selectedModel">
+                        <option value="" disabled>Seleziona un modello...</option>
+                        <option v-for="model in models" :value="model" :key="model">{{ model }}</option>
+                    </select>
+                    
+                    <button class="btn-full" @click="toggleServer" :style="{ background: isRunning ? 'var(--danger)' : 'var(--accent)' }">
+                        <span class="status-dot" :class="{ active: isRunning }"></span>
+                        {{ isRunning ? 'Spegni Server' : 'Avvia Server API' }}
+                    </button>
+                    <p style="font-size: 0.8rem; color: var(--text-muted); text-align: center; margin-bottom: 1rem;">
+                        Endpoint Locale: <code>http://127.0.0.1:8080</code>
+                    </p>
+
+                    <button class="btn-full btn-secondary" @click="toggleLogs">
+                        {{ showLogs ? 'Nascondi Log' : 'Mostra Log Server' }}
+                    </button>
+
+                    <div v-if="showLogs" class="log-box" id="logContainer">
+                        <div v-for="(line, idx) in serverLogs" :key="idx">{{ line }}</div>
+                        <div v-if="serverLogs.length === 0" style="color: var(--text-muted);">Nessun log disponibile...</div>
+                    </div>
+                </div>
+                
+                <div class="panel">
+                    <h3>🔑 Gestione API Key</h3>
+                    <div class="input-group">
+                        <input type="text" v-model="newKeyName" placeholder="Nome (es. Test Frontend)">
+                        <button @click="createApiKey" :disabled="!newKeyName.trim()">Crea</button>
+                    </div>
+                    
+                    <label style="font-size: 0.85rem; color: var(--text-muted); display: block; margin-bottom: 0.3rem;">Seleziona Chiave per dettagli:</label>
+                    <select v-model="selectedApiKey">
+                        <option value="" disabled>Seleziona una API Key...</option>
+                        <option v-for="(data, key) in apiKeys" :value="key" :key="key">{{ data.name }} ({{ key.substring(0,8) }}...)</option>
+                    </select>
+                    
+                    <div v-if="selectedApiKey && apiKeys[selectedApiKey]">
+                        <div class="stat-box"><span>Key:</span> <code style="color: var(--accent);">{{ selectedApiKey }}</code></div>
+                        <div class="stat-box"><span>Chiamate:</span> <strong>{{ apiKeys[selectedApiKey].calls }}</strong></div>
+                        <div class="stat-box"><span>Token stimati:</span> <strong>{{ apiKeys[selectedApiKey].tokens }}</strong></div>
+                        <button class="btn-full btn-danger" style="margin-top: 0.5rem;" @click="deleteApiKey(selectedApiKey)">Elimina questa Chiave</button>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h3>Modelli su Disco</h3>
+                    <ul style="margin-bottom: 1rem;">
+                        <li v-for="model in models" :key="model">
+                            <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 10px;">{{ model }}</span>
+                            <button class="btn-danger" title="Elimina" @click="deleteModel(model)">🗑️</button>
+                        </li>
+                    </ul>
+                    <p v-if="models.length === 0" style="font-size: 0.85rem; color: var(--text-muted); text-align: center;">Nessun modello trovato.</p>
+                    
+                    <hr style="border-color: var(--border); margin: 1rem 0;">
+                    <h4 style="margin-top:0; font-size: 0.95rem; color: #cbd5e1;">⬇️ Scarica Nuovo Modello</h4>
+                    <div class="input-group">
+                        <input type="url" v-model="dlUrl" placeholder="URL diretto al file .gguf">
+                        <button @click="downloadModel" :disabled="isDownloading || !dlUrl.trim()">
+                            {{ isDownloading ? '...' : 'Scarica' }}
+                        </button>
+                    </div>
+                    <div v-if="dlLog" class="log-box" id="dlContainer" style="height: 100px; margin-top: 0.5rem; white-space: pre-wrap; font-size: 0.75rem;">
+                        {{ dlLog }}
+                    </div>
+                </div>
+            </div>
+
+            <!-- COLONNA DESTRA -->
+            <div>
+                <div class="panel">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <h3 style="margin: 0; padding: 0; border: none;">Playground Chat</h3>
+                            <button class="btn-danger" style="padding: 0.2rem 0.6rem; font-size: 0.8rem;" @click="clearChat" title="Svuota la cronologia chat">🗑️ Clear</button>
+                        </div>
+                        <div style="display: flex; gap: 1.5rem; align-items: center;">
+                            <div class="toggle-row" style="margin: 0;">
+                                <input type="checkbox" id="mcp" v-model="useMcp">
+                                <label for="mcp">MCP Tool (Search/Fetch)</label>
+                            </div>
+                            <div class="toggle-row" style="margin: 0;">
+                                <input type="checkbox" id="stream" v-model="useStream">
+                                <label for="stream">Streaming</label>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-box" id="chatContainer">
+                        <div v-for="(msg, index) in chatLog" :key="index" class="msg" :class="[msg.role, { 'cursor': isLoading && useStream && index === chatLog.length - 1 && msg.role === 'Llama' }]">
+                            {{ msg.text }}
+                        </div>
+                    </div>
+
+                    <div class="input-group">
+                        <input type="text" v-model="prompt" @keyup.enter="sendChat" :disabled="isLoading" placeholder="Scrivi un prompt al modello...">
+                        <button @click="sendChat" :disabled="isLoading || !prompt.trim()">
+                            {{ isLoading ? '...' : 'Invia' }}
+                        </button>
+                    </div>
+                </div>
+
+                <div class="panel">
+                    <h3>⚡ Generatore Chiamate API (Gateway Esterno)</h3>
+                    
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1rem;">
+                        <div>
+                            <label style="font-size: 0.85rem; color: var(--text-muted); display: block; margin-bottom: 0.5rem;">Temperatura: {{apiTemp}}</label>
+                            <input type="range" v-model="apiTemp" min="0" max="1" step="0.1" style="width: 100%; accent-color: var(--accent);">
+                        </div>
+                        <div class="toggle-row" style="align-items: flex-end; padding-bottom: 0.5rem;">
+                            <input type="checkbox" id="apiStream" v-model="apiStream">
+                            <label for="apiStream">Abilita Streaming Mode (SSE)</label>
+                        </div>
+                    </div>
+                    
+                    <input type="text" v-model="apiSystemPrompt" placeholder="System Prompt (opzionale, es. 'Sei un pirata...')">
+                    <input type="text" v-model="apiPrompt" placeholder="Scrivi qui il prompt per costruire la chiamata utente...">
+                    
+                    <div style="position: relative; margin-top: 0.5rem;">
+                        <pre><code>{{ curlCommand }}</code></pre>
+                        <button class="copy-btn" @click="copyCurl">📋 Copia</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, onMounted, nextTick } = Vue;
+
+        createApp({
+            setup() {
+                const models = ref([]);
+                const selectedModel = ref('');
+                const prompt = ref('');
+                const chatLog = ref([{role: 'Llama', text: 'Ciao! Il sistema è pronto.'}]);
+                const useMcp = ref(false);
+                const useStream = ref(true);
+                const isRunning = ref(false);
+                const isLoading = ref(false);
+                
+                const showLogs = ref(false);
+                const serverLogs = ref([]);
+                let logInterval = null;
+
+                const dlUrl = ref('');
+                const dlLog = ref('');
+                const isDownloading = ref(false);
+
+                // API KEYS STATE
+                const apiKeys = ref({});
+                const newKeyName = ref('');
+                const selectedApiKey = ref('');
+
+                const apiSystemPrompt = ref('');
+                const apiPrompt = ref('Di cosa vogliamo parlare oggi?');
+                const apiTemp = ref(0.7);
+                const apiStream = ref(false);
+
+                // Builder Computed property: Utilizza la chiave selezionata, altrimenti un placeholder
+                const curlCommand = computed(() => {
+                    const host = window.location.hostname || '130.110.8.22';
+                    const safePrompt = apiPrompt.value.replace(/"/g, '\\"');
+                    const authKey = selectedApiKey.value || 'sk-YOUR-API-KEY';
+                    
+                    let messagesStr = '';
+                    if (apiSystemPrompt.value.trim() !== '') {
+                        const safeSystem = apiSystemPrompt.value.replace(/"/g, '\\"');
+                        messagesStr = `\n      {\n        "role": "system",\n        "content": "${safeSystem}"\n      },`;
+                    }
+                    messagesStr += `\n      {\n        "role": "user",\n        "content": "${safePrompt}"\n      }\n    `;
+
+                    return `curl -X POST http://${host}:3000/v1/chat/completions \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer ${authKey}" \\
+  -d '{
+    "messages": [${messagesStr}],
+    "temperature": ${apiTemp.value},
+    "stream": ${apiStream.value}
+  }'`;
+                });
+
+                const fetchApiKeys = async () => {
+                    try {
+                        const res = await fetch('/api/keys');
+                        apiKeys.value = await res.json();
+                        if(!selectedApiKey.value && Object.keys(apiKeys.value).length > 0) {
+                            selectedApiKey.value = Object.keys(apiKeys.value)[0];
+                        }
+                    } catch(e) {}
+                };
+
+                const createApiKey = async () => {
+                    const res = await fetch('/api/keys', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ name: newKeyName.value })
+                    });
+                    apiKeys.value = await res.json();
+                    newKeyName.value = '';
+                };
+
+                const deleteApiKey = async (key) => {
+                    if(confirm("Eliminare questa API Key? Smetterà di funzionare immediatamente.")) {
+                        const res = await fetch(`/api/keys/${key}`, { method: 'DELETE' });
+                        apiKeys.value = await res.json();
+                        selectedApiKey.value = Object.keys(apiKeys.value)[0] || '';
+                    }
+                };
+
+                const copyCurl = async () => {
+                    const text = curlCommand.value;
+                    if (navigator.clipboard && window.isSecureContext) {
+                        try { await navigator.clipboard.writeText(text); alert("Comando copiato!"); return; } catch (err) {}
+                    }
+                    const textArea = document.createElement("textarea");
+                    textArea.value = text;
+                    textArea.style.position = "fixed"; textArea.style.left = "-999999px";
+                    document.body.appendChild(textArea);
+                    textArea.focus(); textArea.select();
+                    try { document.execCommand('copy'); alert("Comando copiato!"); } catch (err) { alert("Copia fallita."); }
+                    document.body.removeChild(textArea);
+                };
+
+                const fetchModels = async () => {
+                    try {
+                        const res = await fetch('/api/models');
+                        models.value = await res.json();
+                        if(models.value.length > 0 && !selectedModel.value) selectedModel.value = models.value[0];
+                    } catch (e) {}
+                };
+
+                const deleteModel = async (name) => {
+                    if(confirm(`Sei sicuro di voler eliminare definitivamente ${name}?`)) {
+                        await fetch(`/api/models/${name}`, { method: 'DELETE' });
+                        if(selectedModel.value === name) selectedModel.value = '';
+                        fetchModels();
+                    }
+                };
+
+                const downloadModel = async () => {
+                    if (!dlUrl.value.trim()) return;
+                    isDownloading.value = true;
+                    dlLog.value = "Inizializzazione download...\n";
+                    try {
+                        const res = await fetch('/api/models/download', {
+                            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ url: dlUrl.value })
+                        });
+                        const reader = res.body.getReader();
+                        const decoder = new TextDecoder('utf-8');
+                        while (true) {
+                            const { done, value } = await reader.read();
+                            if (done) break;
+                            const newText = decoder.decode(value, { stream: true });
+                            const chunks = newText.split('\r');
+                            if (chunks.length > 1) {
+                                const lines = dlLog.value.split('\n');
+                                lines[lines.length - 1] = chunks[chunks.length - 1];
+                                dlLog.value = lines.join('\n');
+                            } else {
+                                dlLog.value += newText;
+                            }
+                            await nextTick();
+                            const dlCont = document.getElementById('dlContainer');
+                            if (dlCont) dlCont.scrollTop = dlCont.scrollHeight;
+                        }
+                        fetchModels();
+                    } catch (e) { dlLog.value += "\n[!] Errore di rete."; } finally { isDownloading.value = false; dlUrl.value = ''; }
+                };
+
+                const toggleServer = async () => {
+                    if (!selectedModel.value && !isRunning.value) return alert("Seleziona un modello!");
+                    const res = await fetch('/api/server/toggle', { 
+                        method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ model: selectedModel.value })
+                    });
+                    const data = await res.json();
+                    isRunning.value = data.status === 'started';
+                    if (isRunning.value && !showLogs.value) toggleLogs();
+                };
+
+                const fetchLogs = async () => {
+                    if (!showLogs.value) return;
+                    try {
+                        const res = await fetch('/api/server/logs');
+                        const newLogs = await res.json();
+                        if (newLogs.length !== serverLogs.value.length || newLogs[newLogs.length-1] !== serverLogs.value[serverLogs.value.length-1]) {
+                            serverLogs.value = newLogs;
+                            await nextTick();
+                            const logContainer = document.getElementById('logContainer');
+                            if (logContainer) logContainer.scrollTop = logContainer.scrollHeight;
+                        }
+                    } catch(e) {}
+                };
+
+                const toggleLogs = () => {
+                    showLogs.value = !showLogs.value;
+                    if (showLogs.value) { fetchLogs(); logInterval = setInterval(fetchLogs, 1500); } 
+                    else clearInterval(logInterval);
+                };
+
+                const scrollToBottom = async () => {
+                    await nextTick();
+                    const container = document.getElementById('chatContainer');
+                    container.scrollTop = container.scrollHeight;
+                };
+
+                const clearChat = () => { chatLog.value = [{role: 'Llama', text: 'Contesto svuotato. Sono pronto per una nuova conversazione!'}]; };
+
+                const sendChat = async () => {
+                    if (!prompt.value.trim() || isLoading.value) return;
+                    chatLog.value.push({ role: 'User', text: prompt.value });
+                    const currentPrompt = prompt.value;
+                    prompt.value = '';
+                    isLoading.value = true;
+                    
+                    const msgIndex = chatLog.value.length;
+                    chatLog.value.push({ role: 'Llama', text: useStream.value ? '' : 'Elaborazione in corso...' });
+                    scrollToBottom();
+                    
+                    try {
+                        const res = await fetch('/api/chat', {
+                            method: 'POST', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({ prompt: currentPrompt, useMcp: useMcp.value, useStream: useStream.value })
+                        });
+
+                        if (useStream.value) {
+                            const reader = res.body.getReader();
+                            const decoder = new TextDecoder('utf-8');
+                            while (true) {
+                                const { done, value } = await reader.read();
+                                if (done) break;
+                                chatLog.value[msgIndex].text += decoder.decode(value, { stream: true });
+                                scrollToBottom();
+                            }
+                        } else {
+                            const data = await res.json();
+                            chatLog.value[msgIndex].text = data.reply;
+                            scrollToBottom();
+                        }
+                    } catch (e) { chatLog.value[msgIndex].text += '\n[Errore di connessione]'; } 
+                    finally { isLoading.value = false; scrollToBottom(); }
+                };
+
+                onMounted(() => {
+                    fetchModels();
+                    fetchApiKeys();
+                });
+
+                return { 
+                    models, selectedModel, prompt, chatLog, useMcp, useStream,
+                    isRunning, isLoading, showLogs, serverLogs,
+                    dlUrl, dlLog, isDownloading, 
+                    apiKeys, newKeyName, selectedApiKey, createApiKey, deleteApiKey,
+                    apiSystemPrompt, apiPrompt, apiTemp, apiStream, curlCommand, copyCurl, downloadModel,
+                    deleteModel, toggleServer, toggleLogs, clearChat, sendChat 
+                };
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>

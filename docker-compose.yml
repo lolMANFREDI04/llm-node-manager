@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  llm-manager:
+    build: .
+    container_name: llm-node-manager
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 4G
