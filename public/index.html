@@ -459,10 +459,22 @@
                     finally { isLoading.value = false; scrollToBottom(); }
                 };
 
+                const checkServerStatus = async () => {
+                    try {
+                        const res = await fetch('/api/server/status');
+                        const data = await res.json();
+                        isRunning.value = data.status === 'started';
+                        if (isRunning.value && !showLogs.value) {
+                            // Se era già acceso, riaggancia i log se apri il pannello
+                        }
+                    } catch(e) {}
+                };
+
                 onMounted(() => {
                     fetchModelsPath();
                     fetchModels();
                     fetchApiKeys();
+                    checkServerStatus();
                 });
 
                 return { 
