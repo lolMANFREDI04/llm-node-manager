@@ -7,13 +7,27 @@ const fs = require('fs');
 const app = express();
 app.use(express.json());
 
-const KEYS_FILE = path.join(__dirname, 'data', 'apikeys.json');
+const DATA_DIR = path.join(__dirname, 'data');
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+
+// Persistenza Configurazione (Cartella Modelli)
+const CONFIG_FILE = path.join(DATA_DIR, 'config.json');
+let config = { modelsDir: path.join(__dirname, 'models') };
+if (fs.existsSync(CONFIG_FILE)) {
+    try { config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')); } catch(e) {}
+} else {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+}
+let modelsDir = config.modelsDir;
+if (!fs.existsSync(modelsDir)) fs.mkdirSync(modelsDir, { recursive: true });
+
+// Persistenza API Keys
+const KEYS_FILE = path.join(DATA_DIR, 'apikeys.json');
 let apiKeys = {};
 if (fs.existsSync(KEYS_FILE)) {
     apiKeys = JSON.parse(fs.readFileSync(KEYS_FILE, 'utf8'));
 } else {
     apiKeys['sk-my-super-secret-key'] = { name: 'Admin Default', calls: 0, tokens: 0, created: new Date().toISOString() };
-    if (!fs.existsSync(path.join(__dirname, 'data'))) fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true });
     fs.writeFileSync(KEYS_FILE, JSON.stringify(apiKeys, null, 2));
 }
 const saveKeys = () => fs.writeFileSync(KEYS_FILE, JSON.stringify(apiKeys, null, 2));
@@ -32,16 +46,21 @@ const uiAuth = basicAuth({
     challenge: true
 });
 
-let modelsDir = path.join(__dirname, 'models');
-
-// Funzione di utilità per controllare se llama-server è attivo sul sistema
 const isServerRunning = (callback) => {
     exec("pgrep -f llama-server", (err, stdout) => {
         callback(!err && stdout.trim().length > 0);
     });
 };
 
-// Endpoint Pubblico - Proxy per chiamate esterne
+// Trova il binario corretto di llama-server
+const getLlamaServerBin = () => {
+    const localBin = path.join(__dirname, 'llama-server');
+    const parentBin = path.resolve(__dirname, '../../llama.cpp/build/bin/llama-server');
+    if (fs.existsSync(localBin)) return localBin;
+    if (fs.existsSync(parentBin)) return parentBin;
+    return 'llama-server'; // Fallback su PATH globale
+};
+
 app.post('/v1/chat/completions', async (req, res) => {
     const authHeader = req.headers['authorization'];
     if (!authHeader || !authHeader.startsWith('Bearer ')) return res.status(401).json({ error: "API Key mancante" });
@@ -76,7 +95,6 @@ app.post('/v1/chat/completions', async (req, res) => {
 
 app.use('/', uiAuth, express.static(path.join(__dirname, 'public')));
 
-// Rotte API Keys
 app.get('/api/keys', uiAuth, (req, res) => res.json(apiKeys));
 app.post('/api/keys', uiAuth, (req, res) => {
     const name = req.body.name || 'Nuova Chiave';
@@ -90,15 +108,18 @@ app.delete('/api/keys/:key', uiAuth, (req, res) => {
     res.json(apiKeys);
 });
 
-// Gestione Modelli e Cartella
 app.get('/api/models/path', uiAuth, (req, res) => res.json({ path: modelsDir }));
 app.post('/api/models/path', uiAuth, (req, res) => {
-    if (req.body.path && fs.existsSync(req.body.path)) {
-        modelsDir = path.resolve(req.body.path);
-        res.json({ success: true, path: modelsDir });
-    } else {
-        res.status(400).json({ success: false, error: "Cartella non esistente" });
+    if (req.body.path) {
+        const resolvedPath = path.resolve(req.body.path);
+        if (fs.existsSync(resolvedPath)) {
+            modelsDir = resolvedPath;
+            config.modelsDir = modelsDir;
+            fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+            return res.json({ success: true, path: modelsDir });
+        }
     }
+    res.status(400).json({ success: false, error: "Cartella non esistente" });
 });
 
 app.get('/api/models', uiAuth, (req, res) => {
@@ -136,7 +157,6 @@ app.post('/api/models/download', uiAuth, (req, res) => {
 
 app.get('/api/server/logs', uiAuth, (req, res) => res.json(serverLogs));
 
-// Endpoint per controllare lo stato reale del server (persistente al refresh)
 app.get('/api/server/status', uiAuth, (req, res) => {
     isServerRunning((running) => {
         res.json({ status: running ? 'started' : 'stopped' });
@@ -146,7 +166,6 @@ app.get('/api/server/status', uiAuth, (req, res) => {
 app.post('/api/server/toggle', uiAuth, (req, res) => {
     isServerRunning((running) => {
         if (running) {
-            // Se è attivo, lo killa forzatamente tramite pkill
             exec("pkill -f llama-server", (err) => {
                 addLog("[SISTEMA] Processo arrestato.");
                 res.json({ status: "stopped" });
@@ -156,9 +175,8 @@ app.post('/api/server/toggle', uiAuth, (req, res) => {
             const modelPath = path.join(modelsDir, req.body.model);
             addLog(`[SISTEMA] Avvio server con modello: ${req.body.model}...`);
             
-            const serverBin = fs.existsSync('./llama-server') ? './llama-server' : 'llama-server';
+            const serverBin = getLlamaServerBin();
             
-            // Avvio disaccoppiato in background (detached)
             const llamaProcess = spawn(serverBin, [
                 '-m', modelPath, '-c', '2048', '-np', '1', '-t', '1', '--port', '8080', '--host', '127.0.0.1'
             ], {
@@ -168,7 +186,7 @@ app.post('/api/server/toggle', uiAuth, (req, res) => {
 
             llamaProcess.stdout.on('data', addLog);
             llamaProcess.stderr.on('data', addLog);
-            llamaProcess.unref(); // Sgancia completamente il ciclo di vita dal processo Node
+            llamaProcess.unref();
 
             res.json({ status: "started" });
         }
