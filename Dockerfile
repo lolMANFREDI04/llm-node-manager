@@ -5,7 +5,6 @@ RUN apk add --no-cache build-base cmake git linux-headers
 RUN git clone https://github.com/ggerganov/llama.cpp.git /app/llama.cpp
 WORKDIR /app/llama.cpp
 
-# Configura CMake per compilare solo llama-server
 RUN cmake -B build \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_SHARED_LIBS=ON \
@@ -15,17 +14,20 @@ RUN cmake -B build \
 
 RUN cmake --build build --config Release -j$(nproc) --target llama-server
 
-# Installa in una cartella di staging prefissata (copia binari e tutte le .so necessarie)
-RUN cmake --install build --prefix /app/install
+# Prepara una directory con solo il server e tutte le librerie .so compilate
+RUN mkdir -p /app/dist/bin /app/dist/lib && \
+    cp /app/llama.cpp/build/bin/llama-server /app/dist/bin/ && \
+    cp -d /app/llama.cpp/build/bin/*.so* /app/dist/lib/ 2>/dev/null || true
 
-# Stage 2: Container Finale Node.js
+# Stage 2: Runtime Node.js
 FROM node:22-alpine
 RUN apk add --no-cache curl jq libstdc++ bash
 
-# Copia tutti gli eseguibili e le librerie condivise collegate
-COPY --from=builder /app/install/ /usr/local/
+# Copia l'eseguibile e le librerie condivise nelle directory di sistema
+COPY --from=builder /app/dist/bin/llama-server /usr/local/bin/llama-server
+COPY --from=builder /app/dist/lib/ /usr/local/lib/
 
-# Registra le librerie condivise nel runtime Alpine
+# Aggiorna la cache del linker per le nuove .so
 RUN ldconfig /usr/local/lib || true
 
 WORKDIR /app
