@@ -21,7 +21,7 @@ RUN mkdir -p /app/dist/bin /app/dist/lib && \
 
 # Stage 2: Runtime Node.js
 FROM node:22-alpine
-RUN apk add --no-cache curl jq libstdc++ bash
+RUN apk add --no-cache curl jq libstdc++ libgomp bash
 
 # Copia l'eseguibile e le librerie condivise nelle directory di sistema
 COPY --from=builder /app/dist/bin/llama-server /usr/local/bin/llama-server
